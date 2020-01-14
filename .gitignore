@@ -3,3 +3,4 @@ stx-example/
 stx-format/
 .ipynb_checkpoints/
 __pycache__/
+data/
