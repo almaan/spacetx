@@ -167,7 +167,9 @@ class STdata:
              overlay : bool = True,
              figsize : Tuple[float,float] = (20,20),
              cmap = plt.cm.Blues,
+             alpha : float = 1,
              )-> Tuple[plt.Figure,plt.Axes]:
+
 
         if ax is None:
             fig,ax = plt.subplots(1,
@@ -184,14 +186,20 @@ class STdata:
             else:
                 marker_size = 10
 
+        
+
         if len(self.foi.shape) > 1:
             cmap = None
+            alpha = None
+        else:
+            alpha = np.clip(alpha,a_min = 0, a_max = 1)
 
         ax.scatter(self.crd[:,1] * self.sf,
                    self.crd[:,0] * self.sf,
                    c = self.foi,
                    cmap = cmap,
                    s = marker_size,
+                   alpha = alpha,
                    )
 
         ax.set_title(self.title)
@@ -204,7 +212,6 @@ class STdata:
             return (fig,ax)
         else:
             return ax
-
 
     def set_foi(self,
                 feature : Union[str,np.ndarray],
@@ -219,8 +226,10 @@ class STdata:
                 if mx > 0:
                     self.foi[:,3] /= mx
                 self.title = feature
+            elif feature in self.mta.columns:
+                self.foi = self.mta[feature].values.flatten()
             else:
-                print("[ERROR] : {} is not a valid gene".format(feature))
+                print("[ERROR] : {} is not a valid Feature of Interest".format(feature))
         elif isinstance(feature,np.ndarray):
             self.foi = feature
             self.title = ''
