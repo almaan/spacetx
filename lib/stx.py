@@ -11,7 +11,7 @@ import pandas as pd
 
 import matplotlib.pyplot as plt
 
-from typing import Union,Tuple
+from typing import Union,Tuple,List
 import PIL
 
 import utils as ut
@@ -332,10 +332,170 @@ def topNgenes(cnt : pd.DataFrame,
 
     return df
 
-def normalize_cnt(cnt : pd.DataFrame):
+def normalize_cnt(cnt : np.ndarray):
 
-    vals = 2.0 * np.sqrt(cnt.values + 3.0 / 8.0)
-    rsms = vals.sum(axis = 1).reshape(-1,1)
+    vals = 2.0 * np.sqrt(cnt+ 3.0 / 8.0)
+    rsms = np.abs(vals).sum(axis = 1).reshape(-1,1)
     vals = np.divide(vals,rsms,where = rsms > 0)
 
     return vals
+
+class DataBundle:
+    def __init__(self,
+                 sets : List[STdata],
+                 ) -> None:
+
+        self.sets = sets
+        self.n_sets = len(sets)
+        self.S = sum([x.S for x in self.sets])
+
+    def plot(self,
+             fig : plt.Figure = None,
+             axs : plt.Axes = None,
+             marker_size : float = None,
+             overlay : bool = True,
+             figsize : Tuple[float,float] = (20,20),
+             cmap = plt.cm.Blues,
+             alpha : float = 1,
+             )-> []:
+
+        if axs is not None:
+            old_shape = axs.shape
+            axs = axs.flatten()
+            if len(axs) != self.n_sets:
+                print("[ERROR] : Provided axes"
+                    "does not match number of samples")
+                axs = axs.reshape(old_shape)
+                return fig,axs
+        else:
+            fig,axs = plt.subplots(1,self.n_sets, figsize = figsize,squeeze = False)
+
+        for ii in range(self.n_sets):
+            fig, axs[ii] = self.sets[ii].plot(fig = fig,
+                                              ax = axs[ii],
+                                              marker_size = marker_size,
+                                              overlay = overlay,
+                                              figsize = figsize,
+                                              cmap = cmap,
+                                              alpha = alpha,
+                                              )
+
+        return (fig,axs)
+
+    @property
+    def cnt(self,
+            ) -> Tuple[pd.DataFrame,np.ndarray]:
+
+        joint = pd.DataFrame([])
+        new_idx = []
+        split_pos = [0]
+        for s in range(self.n_sets):
+            new_idx += [str(s) + "&-" + str(x) for x in self.sets[s].cnt.index]
+            split_pos.append(self.sets[s].S)
+            joint = pd.concat((joint,self.sets[s].cnt),
+                             join = ("inner" if s > 0 else "outer"),
+                             sort = False)
+
+            joint[pd.isna(joint)] = 0.0
+
+        joint.index = new_idx
+        split_pos = np.cumsum(split_pos)
+
+        return joint
+
+    @property
+    def mta(self,
+            ) -> Tuple[pd.DataFrame,np.ndarray]:
+
+        joint = pd.DataFrame([])
+        new_idx = []
+        split_pos = [0]
+        for s in range(self.n_sets):
+            new_idx += [str(s) + "&-" + str(x) for x in self.sets[s].mta.index]
+            split_pos.append(self.sets[s].S)
+            joint = pd.concat((joint,self.sets[s].mta),
+                             join = ("inner" if s > 0 else "outer"),
+                             sort = False)
+
+            joint[pd.isna(joint)] = 0.0
+
+        joint.index = new_idx
+        split_pos = np.cumsum(split_pos)
+
+        return joint
+
+    @property
+    def positions(self,
+                  )->dict:
+
+        pos = {}
+        v = 0
+        for s in range(self.n_sets):
+            pos.update({s:range(v,v+self.sets[s].S)})
+            v += self.sets[s].S
+        return pos
+
+    def normalized_counts(self,
+                          cnt : Union[np.ndarray,pd.DataFrame] = None,
+                          verbose : bool = True,
+                          )->Union[np.ndarray,pd.DataFrame]:
+
+        import statsmodels.api as sm
+
+        backasarray = False
+
+        if cnt is None:
+            tcnt = self.cnt
+            o_index = tcnt.index
+            o_cols = tcnt.columns
+            tcnt = tcnt.values
+
+        elif isinstance(cnt,np.ndarray):
+            backasarray = True
+            tcnt = cnt[:,:]
+
+        else:
+            tcnt = cnt.values
+            o_index = tcnt.index
+            o_cols = tcnt.columns
+
+        X = np.zeros((self.S,self.n_sets+1))
+
+        for s in range(self.n_sets):
+            X[self.positions[s],s] = 1
+
+        X[:,-1] = np.log(tcnt.sum(axis = 1)+1)
+
+        ans_cnt = np.zeros(tcnt.shape)
+
+        for g in range(tcnt.shape[1]):
+            if tcnt[:,g].sum() == 0:
+                continue
+            try:
+                model = sm.GLM(tcnt[:,g],
+                                X,
+                                family=sm.families.NegativeBinomial(),
+                                missing = 'drop',
+                                )
+
+                res = model.fit()
+                ans_cnt[:,g] = res.resid_anscombe_scaled
+
+            except:
+                pass
+
+            if g % 100 == 0 and verbose:
+                print("\r",end='')
+                print("{} / {} genes "
+                      "analyzed".format(g,tcnt.shape[1]),end = '')
+
+        if not backasarray:
+            ans_cnt = pd.DataFrame(ans_cnt,
+                                   index = o_index,
+                                   columns = o_cols,
+                                   )
+
+        return ans_cnt
+
+
+
