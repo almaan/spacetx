@@ -75,3 +75,31 @@ def plot_member_distribution(cidx : np.ndarray,
     return fig, ax
 
 
+def cmap_legend(n_members,
+               cmap,
+               ) -> Tuple[plt.Figure,plt.Axes]:
+
+    fig, ax = plt.subplots(1,1)
+
+    ax.scatter(np.arange(n_members),
+            np.zeros(n_members),
+            s = 150,
+            cmap = cmap,
+            c = np.arange(n_members))
+
+    ax.set_ylim([-1,1])
+
+    for x in range(n_members):
+        ax.text(x = x,
+                y = 0.2,
+                s = str(x),
+                horizontalalignment='center',
+                fontsize = 24)
+
+
+    clean_spines(ax)
+    clean_ticks(ax)
+
+    return (fig,ax)
+
+

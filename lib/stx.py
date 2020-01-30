@@ -167,9 +167,8 @@ class STdata:
              overlay : bool = True,
              figsize : Tuple[float,float] = (20,20),
              cmap = plt.cm.Blues,
-             alpha : float = 1,
+             alpha : float = None,
              )-> Tuple[plt.Figure,plt.Axes]:
-
 
         if ax is None:
             fig,ax = plt.subplots(1,
@@ -185,14 +184,15 @@ class STdata:
                 marker_size = (self.r * self.sf / fig.dpi * 72)
             else:
                 marker_size = 10
-
         
+        if alpha is not None:
+            alpha = np.clip(alpha,a_min = 0, a_max = 1)
 
         if len(self.foi.shape) > 1:
             cmap = None
+            if alpha is not None:
+                self.foi[:,3] = alpha
             alpha = None
-        else:
-            alpha = np.clip(alpha,a_min = 0, a_max = 1)
 
         ax.scatter(self.crd[:,1] * self.sf,
                    self.crd[:,0] * self.sf,
@@ -230,22 +230,36 @@ class STdata:
                 self.foi = self.mta[feature].values.flatten()
             else:
                 print("[ERROR] : {} is not a valid Feature of Interest".format(feature))
+
         elif isinstance(feature,np.ndarray):
-            self.foi = feature
-            self.title = ''
+            if len(feature.shape) > 1:
+                self.foi = np.zeros((self.S,4))
+                self.foi[:,3] = 1
+                self.foi[:,0:feature.shape[1]] = feature
+                self.title = ''
+            else:
+                self.foi = feature
         else:
             print("[ERROR] : Provided feature not supported")
 
     def filter_genes(self,
-                     pattern : str,
+                     pattern : str = None,
+                     min_obs : float = None,
+                     min_tot : float = None,
                      )-> None:
 
-        keep = [not bool(re.match(pattern.upper(),x.upper())) for x in self.genes]
+        keep = np.ones(self.G,dtype = np.bool)
+
+        if pattern is not None:
+            keep *= np.array([not bool(re.match(pattern.upper(),x.upper())) for x in self.genes])
+
+        if min_obs is not None:
+            keep *= np.array((self.cnt.values > 0).sum(axis = 0) > min_obs)
+        if min_tot is not None:
+            keep *= np.array((self.cnt.values).sum(axis = 0) > min_tot)
 
         self.cnt = self.cnt.iloc[:,keep]
         self._update()
-
-
 
 def metric_plt(func):
     def wrapper(cnt : pd.DataFrame,
@@ -348,6 +362,13 @@ class DataBundle:
         self.sets = sets
         self.n_sets = len(sets)
         self.S = sum([x.S for x in self.sets])
+        self._cnt = None
+        self._mta = None
+        self.active = np.arange(self.S)
+
+        self._cnt = self.cnt
+        self._mta = self.mta
+        self.reset_active()
 
     def plot(self,
              fig : plt.Figure = None,
@@ -379,50 +400,117 @@ class DataBundle:
                                               cmap = cmap,
                                               alpha = alpha,
                                               )
-
         return (fig,axs)
 
     @property
     def cnt(self,
             ) -> Tuple[pd.DataFrame,np.ndarray]:
 
-        joint = pd.DataFrame([])
-        new_idx = []
-        split_pos = [0]
-        for s in range(self.n_sets):
-            new_idx += [str(s) + "&-" + str(x) for x in self.sets[s].cnt.index]
-            split_pos.append(self.sets[s].S)
-            joint = pd.concat((joint,self.sets[s].cnt),
-                             join = ("inner" if s > 0 else "outer"),
-                             sort = False)
+        if self._cnt is None:
+            self._cnt = pd.DataFrame([])
+            new_idx = []
+            split_pos = [0]
+            for s in range(self.n_sets):
+                new_idx += [str(s) + "&-" + str(x) for x in self.sets[s].cnt.index]
+                split_pos.append(self.sets[s].S)
+                self._cnt = pd.concat((self._cnt,self.sets[s].cnt),
+                                join = ("inner" if s > 0 else "outer"),
+                                sort = False)
 
-            joint[pd.isna(joint)] = 0.0
+                self._cnt[pd.isna(self._cnt)] = 0.0
 
-        joint.index = new_idx
-        split_pos = np.cumsum(split_pos)
+            self._cnt.index = new_idx
+            split_pos = np.cumsum(split_pos)
 
-        return joint
+        return self._cnt.iloc[self.active,:]
 
     @property
     def mta(self,
-            ) -> Tuple[pd.DataFrame,np.ndarray]:
+            ) -> pd.DataFrame:
 
-        joint = pd.DataFrame([])
-        new_idx = []
-        split_pos = [0]
+        if self._mta is None:
+            if not any([s.mta is None for s in self.sets]):
+                self._mta = pd.DataFrame([])
+                new_idx = []
+                for s in range(self.n_sets):
+                    new_idx += [str(s) + "&-" + str(x) for x in self.sets[s].mta.index]
+                    self._mta = pd.concat((self._mta,self.sets[s].mta),
+                                    join = ("inner" if s > 0 else "outer"),
+                                    sort = False)
+
+                    self._mta[pd.isna(self._mta)] = 0.0
+                self._mta.index = new_idx
+
+                self._mta['set'] =  np.zeros(self.S)
+                for s in range(self.n_sets):
+                    self._mta['set'].values[self.positions[s]] = s
+
+                return self._mta.iloc[self.active,:]
+            else:
+                self._mta = None
+                return None
+        else:
+            return self._mta.iloc[self.active,:]
+
+    def __call__(self,
+                 idx : int) -> Union[STdata,None]:
+        if (idx >= 0) and (idx < self.n_sets):
+            return self.sets[idx]
+        else:
+            print("[ERROR] : index out of range")
+            return None
+
+    def add_meta(self,
+                 column : str,
+                 vals : np.ndarray,
+                 )-> None:
+
+        if self._mta is not None:
+            if vals.shape[0] == self.active.shape[0]:
+                vv = np.nan * np.ones(self.S)
+                vv[self.active] = vals
+                self._mta[column] = vv 
+            else:
+                print("[ERROR] : wrong dimensions")
+
+
+    def set_active(self,
+                   label : str,
+                   value : Union[str,float,int],
+                   )-> None:
+
+        if self._mta is not None:
+            if label in self._mta.columns:
+                self.active = np.where(self._mta[label].values == value)[0]
+                self.active_set = []
+                for s in range(self.n_sets):
+                    if label in self.sets[s].mta.columns:
+                        self.active_set.append(np.where(self.sets[s].mta == value)[0])
+            else:
+                print("[ERROR] : Label not in meta data")
+        else:
+            print("[ERROR] : No meta data set")
+
+    def reset_active(self,)->None:
+        if self._mta is not None:
+            self.active = np.arange(self.S)
+            self.active_set = []
+            for s in range(self.n_sets):
+                self.active_set.append(np.arange(self.sets[s].S))
+
+    def filter_genes(self,
+                     pattern : str = None,
+                     min_obs : float = None,
+                     min_tot : float = None,
+                     )-> None:
+
+        self._cnt = None
+
         for s in range(self.n_sets):
-            new_idx += [str(s) + "&-" + str(x) for x in self.sets[s].mta.index]
-            split_pos.append(self.sets[s].S)
-            joint = pd.concat((joint,self.sets[s].mta),
-                             join = ("inner" if s > 0 else "outer"),
-                             sort = False)
-
-            joint[pd.isna(joint)] = 0.0
-
-        joint.index = new_idx
-        split_pos = np.cumsum(split_pos)
-
-        return joint
+            self.sets[s].filter_genes(pattern,
+                                      min_obs,
+                                      min_tot)
+        self._cnt = self.cnt
 
     @property
     def positions(self,
@@ -434,6 +522,13 @@ class DataBundle:
             pos.update({s:range(v,v+self.sets[s].S)})
             v += self.sets[s].S
         return pos
+
+    def set_foi(self,
+                foi,
+                ) -> None:
+
+        for s in range(serl.n_sets):
+            self.sets[s].set_foi(foi)
 
     def normalized_counts(self,
                           cnt : Union[np.ndarray,pd.DataFrame] = None,
@@ -496,6 +591,4 @@ class DataBundle:
                                    )
 
         return ans_cnt
-
-
 
