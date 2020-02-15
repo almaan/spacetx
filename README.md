@@ -53,7 +53,7 @@ attribute ```obsm``` with the interpretation:
 * __proportions_class__ : proportions for every class within every spot
 
 
-# Examples of ST/Visium data analysis
+## Examples of ST/Visium data analysis
 
 Very basic examples of ST/Visium data analysis, given as jupyter notebooks. The
 two images below show an excerpt from the analysis (unsupervised clustering of
