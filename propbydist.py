@@ -42,11 +42,10 @@ def col_major_ordr(n_col : int,
 
     return np.array( o )
 
+#TODO:implement iss support
 def add_edge_iss(data : ad.AnnData,
-                 N : int = 6,
-                 eps : float = 0.1,
+                 **kwargs
                  )->None:
-
     eprint("Assay not implemented yet. Exiting.")
     sys.exit(-1)
 
@@ -311,7 +310,7 @@ def main():
         with open(args.layers[0],"r+") as f:
             args.layers = f.readlines()
 
-        iprint("Only analyzing layers:\n{}".\
+        iprint("Analyzing types:\n{}".\
                format(''.join(args.layers)))
 
         args.layers = [x.rstrip("\n") for x in args.layers]
