@@ -134,7 +134,8 @@ class DataSet(ABC):
         """simulate CSR in the data region"""
 
         npts = np.random.poisson(npts)
-        crd = sample_crd(npts)
+        crd = self.sample_crd(npts)
+        return crd
 
     def __getitem__(self,x)->pd.DataFrame:
         return self._data.iloc[x,:]
